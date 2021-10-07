@@ -16,6 +16,7 @@
   "homepage": "https://github.com/ErbaZZ/wusd-arb#readme",
   "dependencies": {
     "abi-decoder": "^2.4.0",
+    "axios": "^0.22.0",
     "dotenv": "^10.0.0",
     "esm": "^3.2.25",
     "web3": "^1.6.0"

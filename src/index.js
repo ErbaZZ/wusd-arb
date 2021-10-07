@@ -1,7 +1,7 @@
 require('dotenv').config();
 
 import Web3 from 'web3';
-import abiDecode from 'abi-decoder';
+import axios from 'axios';
 import ERC20 from './abi/ERC20.json';
 import Pair from './abi/Pair.json';
 import WUSDMaster from './abi/WUSDMaster.json';
@@ -14,6 +14,12 @@ const RPC_URL = process.env.RPC_URL;
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
 const GAS_BASE = process.env.GAS_BASE;
 const GAS_LIMIT = process.env.GAS_LIMIT;
+const LINE_NOTI_TOKEN = process.env.LINE_NOTI_TOKEN;
+
+// ==== Notifications ====
+
+const LINE_NOTI_CONFIG = { headers: { Authorization: `Bearer ${LINE_NOTI_TOKEN}` } };
+const LINE_NOTI_URL = 'https://notify-api.line.me/api/notify';
 
 // ====== CONSTANTS ======
 
@@ -54,10 +60,7 @@ const wusdMaster = new web3.eth.Contract(WUSDMaster, ContractAddress["WUSDMaster
 const waultRouter = new web3.eth.Contract(Router, ContractAddress["WaultSwapRouter"]);
 const wusd = new web3.eth.Contract(ERC20, ContractAddress["WUSD"]);
 const usdt = new web3.eth.Contract(ERC20, ContractAddress["USDT"]);
-const busd = new web3.eth.Contract(ERC20, ContractAddress["BUSD"]);
 const wex = new web3.eth.Contract(ERC20, ContractAddress["WEX"]);
-const wusdbusdLP = new web3.eth.Contract(Pair, ContractAddress["WUSDBUSDLP"]);
-const usdtwexLP = new web3.eth.Contract(Pair, ContractAddress["USDTWEXLP"]);
 
 // ====== VARIABLES ======
 
@@ -65,6 +68,10 @@ let currentBlock = 0;
 let isTransactionOngoing = false;
 
 // ====== FUNCTIONS ======
+
+const sendLineNotification = async (message) => {
+	return axios.post(LINE_NOTI_URL, `message=${encodeURIComponent(message)}`, LINE_NOTI_CONFIG);
+}
 
 const swapToken = async (routerContract, amountIn, amountOutMin, path, gasPrice) => {
     await routerContract.methods.swapExactTokensForTokens(amountIn, amountOutMin, path, account.address, Math.floor(Date.now() / 1000) + 60).send({
@@ -120,8 +127,8 @@ async function main() {
         console.log("----");
         console.warn(new Date().toLocaleString());
         console.log(`Block\t: ${currentBlock}`);
-        // Get USDT Balance
 
+        // Get USDT Balance
         const usdtBalance = new BN(await usdt.methods.balanceOf(account.address).call());
         // const usdtBalance = new BN(web3.utils.toWei("10", 'ether'));
 
@@ -143,14 +150,16 @@ async function main() {
         const usdtFromWex = new BN(wexSwapAmounts[wexSwapAmounts.length - 1]);
         const usdtFromRedeem = wusdAmount.mul(new BN(895)).div(new BN(1000)).add(usdtFromWex);
        
-        console.log(`Balance\t: ${web3.utils.fromWei(usdtBalance, 'ether')}`)
-        console.log(`Redeem\t: ${web3.utils.fromWei(usdtFromRedeem, 'ether')}`)
+        const profitPercent = usdtFromRedeem.mul(new BN(10000)).div(new BN(usdtBalance)).toNumber() - 10000;
 
-        const profitPercent = usdtFromRedeem.mul(new BN(100)).div(new BN(usdtBalance)).toNumber() - 100;
-        console.log(`Profit\t: ${profitPercent}%`)
+        console.log(`Balance\t: ${parseFloat(web3.utils.fromWei(usdtBalance, 'ether')).toFixed(4)} USDT`)
+        console.log(`Redeem\t: ${parseFloat(web3.utils.fromWei(usdtFromRedeem, 'ether')).toFixed(4)} USDT`)
+        console.log(`Profit\t: ${profitPercent/100}%`)
 
         // Skip on low profit
-        if (profitPercent < 3) return;
+        if (profitPercent/100 < 3) return;
+
+        sendLineNotification(`\n${parseFloat(web3.utils.fromWei(usdtBalance, 'ether')).toFixed(4)} -> ${parseFloat(web3.utils.fromWei(usdtFromRedeem, 'ether')).toFixed(4)} USDT\nProfit: ${profitPercent/100}%`);
 
         isTransactionOngoing = true;
 
@@ -169,46 +178,12 @@ async function main() {
 
         const actualProfit = afterUsdtBalance.sub(usdtBalance);
         const actualProfitPercent = actualProfit.mul(new BN(10000)).div(usdtBalance).toNumber();
-        console.log(`Actual Profit:\t${web3.utils.fromWei(actualProfit, 'ether')} USDT (${actualProfitPercent/100}%)`)
+        console.log(`Actual Profit:\t${parseFloat(web3.utils.fromWei(actualProfit, 'ether')).toFixed(4)} USDT (${actualProfitPercent/100}%)`)
+        sendLineNotification(`SUCCESS:\t${parseFloat(web3.utils.fromWei(actualProfit, 'ether')).toFixed(4)} USDT (${actualProfitPercent/100}%)`)
     }).on("error", (err) => {
         console.error(err.message);
         isTransactionOngoing = false;
     });
-
-    // pendingSubscription.on('data', async (txHash) => {
-    //     // Do nothing when we have no pending transaction
-    //     if (!isTransactionOngoing) return null;        
-
-    //     try {
-    //         const pendingTx = await web3.eth.getTransaction(txHash);
-
-    //         // Do nothing when it is own transaction
-    //         if (pendingTx.from === OWNER_ADDRESS) return null;
-
-    //         // Do nothing when the transaction is not for the router contract
-    //         if (pendingTx.to !== CAKE_ROUTER_ADDRESS) return null;
-
-    //         // Decode transaction input
-    //         const decodedData = abiDecoder.decodeMethod(pendingTx.input);
-
-    //         // Do nothing when the function is not swapExactTokensForTokens
-    //         if (decodedData.name !== "swapExactTokensForTokens") return null;
-
-    //         // Do nothing when the path is not the current swap path
-    //         if (decodedData.params[2].value[0] !== latestTransactionData.swapPath[0] || decodedData.params[2].value[1] !== latestTransactionData.swapPath[1]) return null;
-
-    //         console.log(`Found Pending Tx:\n\tFrom: ${pendingTx.from}\n\tGas: ${ethers.utils.formatUnits(pendingTx.gasPrice, 'gwei')}`);
-
-    //         let monitorGas = parseInt(pendingTx.gasPrice);
-    //         // Do nothing when the gas price is less than our transaction
-    //         if (monitorGas < latestTransactionGas) return null;
-
-    //         // Update gas
-    //         updateGas(monitorGas);
-    //     } catch (err) {
-    //         // console.log("Error on gas update")
-    //     }
-    // });
 }
 
 main().then(async () => {
