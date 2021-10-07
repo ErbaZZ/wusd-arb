@@ -1,0 +1,23 @@
+{
+  "name": "wusd-arb",
+  "version": "1.0.0",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node -r esm src/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ErbaZZ/wusd-arb.git"
+  },
+  "author": "ErbaZZ <weerawat.paw@gmail.com>",
+  "bugs": {
+    "url": "https://github.com/ErbaZZ/wusd-arb/issues"
+  },
+  "homepage": "https://github.com/ErbaZZ/wusd-arb#readme",
+  "dependencies": {
+    "abi-decoder": "^2.4.0",
+    "dotenv": "^10.0.0",
+    "esm": "^3.2.25",
+    "web3": "^1.6.0"
+  }
+}
