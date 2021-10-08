@@ -143,6 +143,7 @@ const getMostProfitableAmount = (info) => {
     let limitR = info.usdtBalance;
     let profit = new BN(0);
     let usdtFromRedeem = 0;
+    let wusdAmount = 0;
 
     const reservesArray = [[info.usdtbusdReserves[0], info.usdtbusdReserves[1]], [info.wusdbusdReserves[1], info.wusdbusdReserves[0]]];
 
@@ -168,16 +169,18 @@ const getMostProfitableAmount = (info) => {
             middlePoint = limitL.add(limitR).div(new BN(2));
             profit = profitL;
             usdtFromRedeem = usdtFromRedeemL;
+            wusdAmount = wusdAmountL;
         } else {
             usdtToSwap = usdtToSwapR;
             limitL = middlePoint;
             middlePoint = limitL.add(limitR).div(new BN(2));
             profit = profitR;
             usdtFromRedeem = usdtFromRedeemR;
+            wusdAmount = wusdAmountR;
         }
         // console.log({usdtToSwap: parseFloat(web3.utils.fromWei(usdtToSwap, 'ether')).toFixed(4), profit: parseFloat(web3.utils.fromWei(profit, 'ether')).toFixed(4)})
     } while (parseFloat(web3.utils.fromWei(limitR.sub(limitL).abs(), 'ether')).toFixed(4) > 0.5)
-    return { "amount": usdtToSwap, "redeem": usdtFromRedeem, "profit": profit }
+    return { "amount": usdtToSwap, "wusdAmount": wusdAmount, "redeem": usdtFromRedeem, "profit": profit }
 }
 
 async function main() {
@@ -207,7 +210,7 @@ async function main() {
 
         isTransactionOngoing = true;
 
-        await swapToken(waultRouter, profitableAmount.amount, usdtBalance.mul(new BN(99)).div(new BN(100)), PATH_USDT_BUSD_WUSD, GAS_BASE);
+        await swapToken(waultRouter, profitableAmount.amount, profitableAmount.wusdAmount.mul(new BN(99)).div(new BN(100)), PATH_USDT_BUSD_WUSD, GAS_BASE);
         const wusdBalance = new BN(await wusd.methods.balanceOf(account.address).call());
         await redeem(wusdBalance, GAS_BASE);
         await claimUsdt("0", GAS_BASE);
@@ -222,8 +225,8 @@ async function main() {
 
         const actualProfit = afterUsdtBalance.sub(info.usdtBalance);
         const actualProfitPercent = actualProfit.mul(new BN(10000)).div(info.usdtBalance).toNumber();
-        console.log(`Actual Profit:\t${parseFloat(web3.utils.fromWei(actualProfit, 'ether')).toFixed(4)} USDT (${actualProfitPercent/100}%)`)
-        sendLineNotification(`SUCCESS:\t${parseFloat(web3.utils.fromWei(actualProfit, 'ether')).toFixed(4)} USDT (${actualProfitPercent/100}%)`)
+        console.log(`Actual Profit:\t${parseFloat(web3.utils.fromWei(actualProfit, 'ether')).toFixed(4)} USDT (${actualProfitPercent/100}%)`);
+        sendLineNotification(`SUCCESS:\t${parseFloat(web3.utils.fromWei(actualProfit, 'ether')).toFixed(4)} USDT (${actualProfitPercent/100}%)`);
     }).on("error", (err) => {
         console.error(err.message);
         isTransactionOngoing = false;
