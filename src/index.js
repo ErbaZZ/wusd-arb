@@ -124,21 +124,19 @@ async function main() {
         if (isTransactionOngoing) return;
 
         currentBlock = block.number;
-        console.log("----");
-        console.warn(`${new Date().toLocaleString()}, Block: ${currentBlock}`);
-
+        
         // Get USDT Balance
         const usdtBalance = new BN(await usdt.methods.balanceOf(account.address).call());
         // const usdtBalance = new BN(web3.utils.toWei("10", 'ether'));
-
+        
         if (usdtBalance.lte(new BN(0))) return;
-
+        
         // Get WUSD Reserves/Total Supply
         const wusdSupply = new BN(await wusd.methods.totalSupply().call());
         
         // Get WEX Balance in WUSDMaster
         const wexBalance = new BN(await wex.methods.balanceOf(ContractAddress["WUSDMaster"]).call());
-
+        
         // Quote USDT to WUSD from redeem
         const wusdSwapAmounts = await waultRouter.methods.getAmountsOut(usdtBalance, PATH_USDT_BUSD_WUSD).call();
         const wusdAmount = new BN(wusdSwapAmounts[wusdSwapAmounts.length - 1]);
@@ -148,18 +146,14 @@ async function main() {
         const wexSwapAmounts = await waultRouter.methods.getAmountsOut(wexToSwap, PATH_WEX_USDT).call();
         const usdtFromWex = new BN(wexSwapAmounts[wexSwapAmounts.length - 1]);
         const usdtFromRedeem = wusdAmount.mul(new BN(895)).div(new BN(1000)).add(usdtFromWex);
-       
+        
         const profitPercent = usdtFromRedeem.mul(new BN(10000)).div(new BN(usdtBalance)).toNumber() - 10000;
-
+        
+        console.log(`${new Date().toLocaleString()}, Block: ${currentBlock}, Balance: ${parseFloat(web3.utils.fromWei(usdtBalance, 'ether')).toFixed(4)} USDT, Redeem: ${parseFloat(web3.utils.fromWei(usdtFromRedeem, 'ether')).toFixed(4)} USDT, Profit: ${profitPercent/100}%`);
+        
         // Skip on low profit
-        if (profitPercent/100 < 0) return;
-        
-        console.log(`Balance\t: ${parseFloat(web3.utils.fromWei(usdtBalance, 'ether')).toFixed(4)} USDT`);
-        console.log(`Redeem\t: ${parseFloat(web3.utils.fromWei(usdtFromRedeem, 'ether')).toFixed(4)} USDT`);
-        console.log(`Profit\t: ${profitPercent/100}%`);
-
         const profitFlat = parseFloat(web3.utils.fromWei(usdtFromRedeem.sub(usdtBalance), 'ether')).toFixed(4);
-        
+
         if (profitFlat < 10) return;
 
         sendLineNotification(`\n${parseFloat(web3.utils.fromWei(usdtBalance, 'ether')).toFixed(4)} -> ${parseFloat(web3.utils.fromWei(usdtFromRedeem, 'ether')).toFixed(4)} USDT\nProfit: ${profitPercent/100}%`);
