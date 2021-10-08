@@ -125,8 +125,7 @@ async function main() {
 
         currentBlock = block.number;
         console.log("----");
-        console.warn(new Date().toLocaleString());
-        console.log(`Block\t: ${currentBlock}`);
+        console.warn(`${new Date().toLocaleString()}, Block: ${currentBlock}`);
 
         // Get USDT Balance
         const usdtBalance = new BN(await usdt.methods.balanceOf(account.address).call());
@@ -152,18 +151,20 @@ async function main() {
        
         const profitPercent = usdtFromRedeem.mul(new BN(10000)).div(new BN(usdtBalance)).toNumber() - 10000;
 
+        // Skip on low profit
+        if (profitPercent/100 < 0) return;
+        
         console.log(`Balance\t: ${parseFloat(web3.utils.fromWei(usdtBalance, 'ether')).toFixed(4)} USDT`)
         console.log(`Redeem\t: ${parseFloat(web3.utils.fromWei(usdtFromRedeem, 'ether')).toFixed(4)} USDT`)
         console.log(`Profit\t: ${profitPercent/100}%`)
 
-        // Skip on low profit
-        if (profitPercent/100 < 3) return;
+        if (profitPercent/100 < 1.5) return;
 
         sendLineNotification(`\n${parseFloat(web3.utils.fromWei(usdtBalance, 'ether')).toFixed(4)} -> ${parseFloat(web3.utils.fromWei(usdtFromRedeem, 'ether')).toFixed(4)} USDT\nProfit: ${profitPercent/100}%`);
 
         isTransactionOngoing = true;
 
-        await swapToken(waultRouter, usdtBalance, usdtBalance.mul(new BN(98)).div(new BN(100)), PATH_USDT_BUSD_WUSD, GAS_BASE);
+        await swapToken(waultRouter, usdtBalance, usdtBalance.mul(new BN(99)).div(new BN(100)), PATH_USDT_BUSD_WUSD, GAS_BASE);
         const wusdBalance = new BN(await wusd.methods.balanceOf(account.address).call());
         await redeem(wusdBalance, GAS_BASE);
         await claimUsdt("0", GAS_BASE);
