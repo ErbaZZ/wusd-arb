@@ -154,11 +154,13 @@ async function main() {
         // Skip on low profit
         if (profitPercent/100 < 0) return;
         
-        console.log(`Balance\t: ${parseFloat(web3.utils.fromWei(usdtBalance, 'ether')).toFixed(4)} USDT`)
-        console.log(`Redeem\t: ${parseFloat(web3.utils.fromWei(usdtFromRedeem, 'ether')).toFixed(4)} USDT`)
-        console.log(`Profit\t: ${profitPercent/100}%`)
+        console.log(`Balance\t: ${parseFloat(web3.utils.fromWei(usdtBalance, 'ether')).toFixed(4)} USDT`);
+        console.log(`Redeem\t: ${parseFloat(web3.utils.fromWei(usdtFromRedeem, 'ether')).toFixed(4)} USDT`);
+        console.log(`Profit\t: ${profitPercent/100}%`);
 
-        if (profitPercent/100 < 1.5) return;
+        const profitFlat = parseFloat(web3.utils.fromWei(usdtFromRedeem.sub(usdtBalance), 'ether')).toFixed(4);
+        
+        if (profitFlat < 10) return;
 
         sendLineNotification(`\n${parseFloat(web3.utils.fromWei(usdtBalance, 'ether')).toFixed(4)} -> ${parseFloat(web3.utils.fromWei(usdtFromRedeem, 'ether')).toFixed(4)} USDT\nProfit: ${profitPercent/100}%`);
 
