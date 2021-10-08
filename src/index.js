@@ -7,6 +7,7 @@ import Pair from './abi/Pair.json';
 import WUSDMaster from './abi/WUSDMaster.json';
 import Router from './abi/Router.json';
 import ContractAddress from './ContractAddress.json';
+import { getAmountOut, getAmountsOut } from './modules/price_helper.js';
 
 // ====== ENV ======
 
@@ -58,6 +59,9 @@ provider.on('end', async (err) => {
 
 const wusdMaster = new web3.eth.Contract(WUSDMaster, ContractAddress["WUSDMaster"]);
 const waultRouter = new web3.eth.Contract(Router, ContractAddress["WaultSwapRouter"]);
+const usdtbusdPair = new web3.eth.Contract(Pair, ContractAddress["USDTBUSDLP"]);
+const wusdbusdPair = new web3.eth.Contract(Pair, ContractAddress["WUSDBUSDLP"]);
+const usdtwexPair = new web3.eth.Contract(Pair, ContractAddress["USDTWEXLP"]);
 const wusd = new web3.eth.Contract(ERC20, ContractAddress["WUSD"]);
 const usdt = new web3.eth.Contract(ERC20, ContractAddress["USDT"]);
 const wex = new web3.eth.Contract(ERC20, ContractAddress["WEX"]);
@@ -115,6 +119,67 @@ const claimUsdt = async (minUSDT, gasPrice) => {
     });
 };
 
+const fetchInfo = async() => {
+    const usdtBalance = usdt.methods.balanceOf(account.address).call();
+    const wusdSupply = wusd.methods.totalSupply().call();
+    const wexBalance = wex.methods.balanceOf(ContractAddress["WUSDMaster"]).call();
+    const usdtbusdReserves = usdtbusdPair.methods.getReserves().call();
+    const wusdbusdReserves = wusdbusdPair.methods.getReserves().call();
+    const usdtwexReserves = usdtwexPair.methods.getReserves().call();
+    return {
+        usdtBalance: new BN(await usdtBalance),
+        wusdSupply: new BN(await wusdSupply),
+        wexBalance: new BN(await wexBalance),
+        usdtbusdReserves: await usdtbusdReserves,
+        wusdbusdReserves: await wusdbusdReserves,
+        usdtwexReserves: await usdtwexReserves
+    }
+}
+
+const getMostProfitableAmount = (info) => {
+    let usdtToSwap = new BN(0);
+    let middlePoint = info.usdtBalance.div(new BN(2));
+    let limitL = new BN(0);
+    let limitR = info.usdtBalance;
+    let profit = new BN(0);
+    let usdtFromRedeem = 0;
+
+    const reservesArray = [[info.usdtbusdReserves[0], info.usdtbusdReserves[1]], [info.wusdbusdReserves[1], info.wusdbusdReserves[0]]];
+
+    // Divide in half and search for increasing profit
+    do {
+        const usdtToSwapL = limitL.add(middlePoint).div(new BN(2));
+        const wusdAmountL = getAmountsOut(usdtToSwapL, 9980, reservesArray).slice(-1)[0];
+        const wexToSwapL = info.wexBalance.mul(wusdAmountL).div(info.wusdSupply);
+        const usdtFromWexL = getAmountOut(wexToSwapL, 9980, info.usdtwexReserves[1], info.usdtwexReserves[0]);
+        const usdtFromRedeemL = wusdAmountL.mul(new BN(895)).div(new BN(1000)).add(usdtFromWexL);
+        const profitL = usdtFromRedeemL.sub(usdtToSwapL);
+       
+        const usdtToSwapR = middlePoint.add(limitR).div(new BN(2));
+        const wusdAmountR = getAmountsOut(usdtToSwapR, 9980, reservesArray).slice(-1)[0];
+        const wexToSwapR = info.wexBalance.mul(wusdAmountR).div(info.wusdSupply);
+        const usdtFromWexR = getAmountOut(wexToSwapR, 9980, info.usdtwexReserves[1], info.usdtwexReserves[0]);
+        const usdtFromRedeemR = wusdAmountR.mul(new BN(895)).div(new BN(1000)).add(usdtFromWexR);
+        const profitR = usdtFromRedeemR.sub(usdtToSwapR);
+
+        if (profitL.gt(profitR)) {
+            usdtToSwap = usdtToSwapL
+            limitR = middlePoint;
+            middlePoint = limitL.add(limitR).div(new BN(2));
+            profit = profitL;
+            usdtFromRedeem = usdtFromRedeemL;
+        } else {
+            usdtToSwap = usdtToSwapR;
+            limitL = middlePoint;
+            middlePoint = limitL.add(limitR).div(new BN(2));
+            profit = profitR;
+            usdtFromRedeem = usdtFromRedeemR;
+        }
+        // console.log({usdtToSwap: parseFloat(web3.utils.fromWei(usdtToSwap, 'ether')).toFixed(4), profit: parseFloat(web3.utils.fromWei(profit, 'ether')).toFixed(4)})
+    } while (parseFloat(web3.utils.fromWei(limitR.sub(limitL).abs(), 'ether')).toFixed(4) > 0.5)
+    return { "amount": usdtToSwap, "redeem": usdtFromRedeem, "profit": profit }
+}
+
 async function main() {
 	const blockSubscription = web3.eth.subscribe('newBlockHeaders');
     // const pendingSubscription = web3.eth.subscribe('pendingTransactions');
@@ -124,43 +189,25 @@ async function main() {
         if (isTransactionOngoing) return;
 
         currentBlock = block.number;
-        
-        // Get USDT Balance
-        const usdtBalance = new BN(await usdt.methods.balanceOf(account.address).call());
-        // const usdtBalance = new BN(web3.utils.toWei("10", 'ether'));
-        
-        if (usdtBalance.lte(new BN(0))) return;
-        
-        // Get WUSD Reserves/Total Supply
-        const wusdSupply = new BN(await wusd.methods.totalSupply().call());
-        
-        // Get WEX Balance in WUSDMaster
-        const wexBalance = new BN(await wex.methods.balanceOf(ContractAddress["WUSDMaster"]).call());
+        const info = await fetchInfo();
+
+        // Check USDT Balance
+        if (info.usdtBalance.lte(new BN(0))) return;
         
         // Quote USDT to WUSD from redeem
-        const wusdSwapAmounts = await waultRouter.methods.getAmountsOut(usdtBalance, PATH_USDT_BUSD_WUSD).call();
-        const wusdAmount = new BN(wusdSwapAmounts[wusdSwapAmounts.length - 1]);
+        const profitableAmount = getMostProfitableAmount(info)
         
-        const wexToSwap = wexBalance.mul(wusdAmount).div(wusdSupply);
-        
-        const wexSwapAmounts = await waultRouter.methods.getAmountsOut(wexToSwap, PATH_WEX_USDT).call();
-        const usdtFromWex = new BN(wexSwapAmounts[wexSwapAmounts.length - 1]);
-        const usdtFromRedeem = wusdAmount.mul(new BN(895)).div(new BN(1000)).add(usdtFromWex);
-        
-        const profitPercent = usdtFromRedeem.mul(new BN(10000)).div(new BN(usdtBalance)).toNumber() - 10000;
-        
-        console.log(`${new Date().toLocaleString()}, Block: ${currentBlock}, Balance: ${parseFloat(web3.utils.fromWei(usdtBalance, 'ether')).toFixed(4)} USDT, Redeem: ${parseFloat(web3.utils.fromWei(usdtFromRedeem, 'ether')).toFixed(4)} USDT, Profit: ${profitPercent/100}%`);
-        
-        // Skip on low profit
-        const profitFlat = parseFloat(web3.utils.fromWei(usdtFromRedeem.sub(usdtBalance), 'ether')).toFixed(4);
+        const profitFlat = parseFloat(web3.utils.fromWei(profitableAmount.profit, 'ether')).toFixed(4);
 
-        if (profitFlat < 10) return;
+        console.log(`${new Date().toLocaleString()}, Block: ${currentBlock}, Balance: ${parseFloat(web3.utils.fromWei(info.usdtBalance, 'ether')).toFixed(4)} USDT, Amount: ${parseFloat(web3.utils.fromWei(profitableAmount.amount, 'ether')).toFixed(4)} USDT, Redeem: ${parseFloat(web3.utils.fromWei(profitableAmount.redeem, 'ether')).toFixed(4)} USDT, Profit: ${profitFlat}`);
 
-        sendLineNotification(`\n${parseFloat(web3.utils.fromWei(usdtBalance, 'ether')).toFixed(4)} -> ${parseFloat(web3.utils.fromWei(usdtFromRedeem, 'ether')).toFixed(4)} USDT\nProfit: ${profitPercent/100}%`);
+        if (profitFlat < 2) return;
+
+        sendLineNotification(`\n${parseFloat(web3.utils.fromWei(profitableAmount.amount, 'ether')).toFixed(4)} -> ${parseFloat(web3.utils.fromWei(profitableAmount.redeem, 'ether')).toFixed(4)} USDT\nProfit: ${profitFlat}`);
 
         isTransactionOngoing = true;
 
-        await swapToken(waultRouter, usdtBalance, usdtBalance.mul(new BN(99)).div(new BN(100)), PATH_USDT_BUSD_WUSD, GAS_BASE);
+        await swapToken(waultRouter, profitableAmount.amount, usdtBalance.mul(new BN(99)).div(new BN(100)), PATH_USDT_BUSD_WUSD, GAS_BASE);
         const wusdBalance = new BN(await wusd.methods.balanceOf(account.address).call());
         await redeem(wusdBalance, GAS_BASE);
         await claimUsdt("0", GAS_BASE);
@@ -168,13 +215,13 @@ async function main() {
 
         const afterUsdtBalance = new BN(await usdt.methods.balanceOf(account.address).call());
 
-        if (afterUsdtBalance.lt(usdtBalance)) {
+        if (afterUsdtBalance.lt(info.usdtBalance)) {
             console.warn("Bad Redeem!");
             return;
         }
 
-        const actualProfit = afterUsdtBalance.sub(usdtBalance);
-        const actualProfitPercent = actualProfit.mul(new BN(10000)).div(usdtBalance).toNumber();
+        const actualProfit = afterUsdtBalance.sub(info.usdtBalance);
+        const actualProfitPercent = actualProfit.mul(new BN(10000)).div(info.usdtBalance).toNumber();
         console.log(`Actual Profit:\t${parseFloat(web3.utils.fromWei(actualProfit, 'ether')).toFixed(4)} USDT (${actualProfitPercent/100}%)`)
         sendLineNotification(`SUCCESS:\t${parseFloat(web3.utils.fromWei(actualProfit, 'ether')).toFixed(4)} USDT (${actualProfitPercent/100}%)`)
     }).on("error", (err) => {
