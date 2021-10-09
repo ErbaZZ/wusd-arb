@@ -74,6 +74,7 @@ const stableSwap = new web3.eth.Contract(StableSwap, ContractAddress["StableSwap
 
 let currentBlock = 0;
 let isTransactionOngoing = false;
+let lastProfit;
 
 // ====== FUNCTIONS ======
 
@@ -234,14 +235,17 @@ async function main() {
         
         const profitFlat = parseFloat(web3.utils.fromWei(profitableAmount.profit, 'ether')).toFixed(4);
 
-        console.log(`${new Date().toLocaleString()}, Block: ${currentBlock}, Balance: ${parseFloat(web3.utils.fromWei(info.busdBalance, 'ether')).toFixed(4)} BUSD, Amount: ${parseFloat(web3.utils.fromWei(profitableAmount.amount, 'ether')).toFixed(4)} BUSD, Redeem: ${parseFloat(web3.utils.fromWei(profitableAmount.redeem, 'ether')).toFixed(4)} BUSD, Profit: ${profitFlat} BUSD`);
+        if (lastProfit !== profitFlat) {
+            console.log(`${new Date().toLocaleString()}, Block: ${currentBlock}, Balance: ${parseFloat(web3.utils.fromWei(info.busdBalance, 'ether')).toFixed(4)} BUSD, Amount: ${parseFloat(web3.utils.fromWei(profitableAmount.amount, 'ether')).toFixed(4)} BUSD, Redeem: ${parseFloat(web3.utils.fromWei(profitableAmount.redeem, 'ether')).toFixed(4)} BUSD, Profit: ${profitFlat} BUSD`);
+            lastProfit = profitFlat;
+        }
 
         if (profitFlat < 2) return;
 
         sendLineNotification(`\n${parseFloat(web3.utils.fromWei(profitableAmount.amount, 'ether')).toFixed(4)} -> ${parseFloat(web3.utils.fromWei(profitableAmount.redeem, 'ether')).toFixed(4)} BUSD\nProfit: ${profitFlat}`);
 
         isTransactionOngoing = true;
-
+        
         await swapToken(waultRouter, profitableAmount.amount, profitableAmount.wusdAmount.mul(new BN(99)).div(new BN(100)), PATH_BUSD_WUSD, GAS_BASE);
         const wusdBalance = new BN(await wusd.methods.balanceOf(account.address).call());
         await redeem(wusdBalance, GAS_BASE);
