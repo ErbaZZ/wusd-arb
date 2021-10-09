@@ -143,7 +143,7 @@ const fetchInfo = async() => {
     const usdtBalance = usdt.methods.balanceOf(account.address).call();
     const wusdSupply = wusd.methods.totalSupply().call();
     const wexBalance = wex.methods.balanceOf(ContractAddress["WUSDMaster"]).call();
-    const usdtbusdReserves = usdtbusdPair.methods.getReserves().call();
+    // const usdtbusdReserves = usdtbusdPair.methods.getReserves().call();
     const wusdbusdReserves = wusdbusdPair.methods.getReserves().call();
     const usdtwexReserves = usdtwexPair.methods.getReserves().call();
     return {
@@ -151,7 +151,7 @@ const fetchInfo = async() => {
         usdtBalance: new BN(await usdtBalance),
         wusdSupply: new BN(await wusdSupply),
         wexBalance: new BN(await wexBalance),
-        usdtbusdReserves: await usdtbusdReserves,
+        // usdtbusdReserves: await usdtbusdReserves,
         wusdbusdReserves: await wusdbusdReserves,
         usdtwexReserves: await usdtwexReserves
     }
