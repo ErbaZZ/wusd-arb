@@ -225,7 +225,7 @@ async function main() {
         }
 
         const actualProfit = afterUsdtBalance.sub(info.usdtBalance);
-        const actualProfitPercent = actualProfit.mul(new BN(10000)).div(info.usdtBalance).toNumber();
+        const actualProfitPercent = actualProfit.mul(new BN(10000)).div(profitableAmount.amount).toNumber();
         console.log(`Actual Profit:\t${parseFloat(web3.utils.fromWei(actualProfit, 'ether')).toFixed(4)} USDT (${actualProfitPercent/100}%)`);
         sendLineNotification(`SUCCESS:\n${parseFloat(web3.utils.fromWei(actualProfit, 'ether')).toFixed(4)} USDT (${actualProfitPercent/100}%)\nBalance: ${parseFloat(web3.utils.fromWei(afterUsdtBalance, 'ether')).toFixed(4)} USDT`);
     }).on("error", (err) => {
