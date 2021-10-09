@@ -219,6 +219,7 @@ async function main() {
         const afterUsdtBalance = new BN(await usdt.methods.balanceOf(account.address).call());
 
         if (afterUsdtBalance.lt(info.usdtBalance)) {
+            sendLineNotification(`BAD:\nBalance: ${parseFloat(web3.utils.fromWei(afterUsdtBalance, 'ether')).toFixed(4)} USDT`);
             console.warn("Bad Redeem!");
             return;
         }
@@ -226,7 +227,7 @@ async function main() {
         const actualProfit = afterUsdtBalance.sub(info.usdtBalance);
         const actualProfitPercent = actualProfit.mul(new BN(10000)).div(info.usdtBalance).toNumber();
         console.log(`Actual Profit:\t${parseFloat(web3.utils.fromWei(actualProfit, 'ether')).toFixed(4)} USDT (${actualProfitPercent/100}%)`);
-        sendLineNotification(`SUCCESS:\t${parseFloat(web3.utils.fromWei(actualProfit, 'ether')).toFixed(4)} USDT (${actualProfitPercent/100}%)`);
+        sendLineNotification(`SUCCESS:\n${parseFloat(web3.utils.fromWei(actualProfit, 'ether')).toFixed(4)} USDT (${actualProfitPercent/100}%)\nBalance: ${parseFloat(web3.utils.fromWei(afterUsdtBalance, 'ether')).toFixed(4)} USDT`);
     }).on("error", (err) => {
         console.error(err.message);
         isTransactionOngoing = false;
