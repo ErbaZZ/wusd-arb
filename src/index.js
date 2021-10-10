@@ -8,6 +8,8 @@ import WUSDMaster from './abi/WUSDMaster.json';
 import StableSwap from './abi/StableSwap.json';
 import Router from './abi/Router.json';
 import ContractAddress from './ContractAddress.json';
+import WUSDArb from './abi/WUSDArb.json';
+
 import { getAmountOut, getAmountsOut } from './modules/price_helper.js';
 
 // ====== ENV ======
@@ -69,6 +71,7 @@ const wusd = new web3.eth.Contract(ERC20, ContractAddress["WUSD"]);
 const usdt = new web3.eth.Contract(ERC20, ContractAddress["USDT"]);
 const wex = new web3.eth.Contract(ERC20, ContractAddress["WEX"]);
 const stableSwap = new web3.eth.Contract(StableSwap, ContractAddress["StableSwap"]);
+const wusdArb = new web3.eth.Contract(WUSDArb, ContractAddress["WUSDArb"]);
 
 // ====== VARIABLES ======
 
@@ -134,6 +137,34 @@ const stableSwapExchange = async (fromId, toId, amountIn, amountOutMin, gasPrice
         console.log(`Swapping: ${transactionHash}`);
     }).on('receipt', (receipt) => {
         console.log("Swapping Success!");
+    }).on('error', (err) => {
+        throw err;
+    });
+}
+
+const swapAndRedeem = async (busdAmount, minAmountOut, gasPrice) => {
+    await wusdArb.methods.swapAndRedeem(busdAmount, minAmountOut).send({
+        gasPrice: gasPrice.toString(),
+        gas: GAS_LIMIT,
+        from: account.address
+    }).on('transactionHash', function (transactionHash) {
+        console.log(`Swapping and Redeeming: ${transactionHash}`);
+    }).on('receipt', (receipt) => {
+        console.log("Swapping and Redeeming Success!");
+    }).on('error', (err) => {
+        throw err;
+    });
+}
+
+const claimAndExchange = async (minUsdt, minBusd, gasPrice) => {
+    await wusdArb.methods.claimAndExchange(minUsdt, minBusd).send({
+        gasPrice: gasPrice.toString(),
+        gas: GAS_LIMIT,
+        from: account.address
+    }).on('transactionHash', function (transactionHash) {
+        console.log(`Claiming and Exchanging: ${transactionHash}`);
+    }).on('receipt', (receipt) => {
+        console.log("Claiming and Exchanging Success!");
     }).on('error', (err) => {
         throw err;
     });
@@ -240,18 +271,24 @@ async function main() {
             lastProfit = profitFlat;
         }
 
-        if (profitFlat < 2) return;
+        if (profitFlat < 1.5) return;
 
         sendLineNotification(`\n${parseFloat(web3.utils.fromWei(profitableAmount.amount, 'ether')).toFixed(4)} -> ${parseFloat(web3.utils.fromWei(profitableAmount.redeem, 'ether')).toFixed(4)} BUSD\nProfit: ${profitFlat}`);
 
         isTransactionOngoing = true;
         
-        await swapToken(waultRouter, profitableAmount.amount, profitableAmount.wusdAmount.mul(new BN(99)).div(new BN(100)), PATH_BUSD_WUSD, GAS_BASE);
-        const wusdBalance = new BN(await wusd.methods.balanceOf(account.address).call());
-        await redeem(wusdBalance, GAS_BASE);
-        await claimUsdt("0", GAS_BASE);
-        const afterUsdtBalance = new BN(await usdt.methods.balanceOf(account.address).call());
-        await stableSwapExchange(1, 0, afterUsdtBalance, afterUsdtBalance.mul(new BN(999)).div(new BN(1000)), GAS_BASE);
+        // await swapToken(waultRouter, profitableAmount.amount, profitableAmount.wusdAmount.mul(new BN(99)).div(new BN(100)), PATH_BUSD_WUSD, GAS_BASE);
+        // const wusdBalance = new BN(await wusd.methods.balanceOf(account.address).call());
+        // await redeem(wusdBalance, GAS_BASE);
+
+        await swapAndRedeem(profitableAmount.amount, profitableAmount.wusdAmount.mul(new BN(99)).div(new BN(100)), GAS_BASE);
+
+        // await claimUsdt("0", GAS_BASE);
+        // const afterUsdtBalance = new BN(await usdt.methods.balanceOf(account.address).call());
+        // await stableSwapExchange(1, 0, afterUsdtBalance, afterUsdtBalance.mul(new BN(999)).div(new BN(1000)), GAS_BASE);
+
+        await claimAndExchange("0", profitableAmount.amount, GAS_BASE);
+
         isTransactionOngoing = false;
 
         const afterBusdBalance = new BN(await busd.methods.balanceOf(account.address).call());
