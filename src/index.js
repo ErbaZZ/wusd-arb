@@ -324,7 +324,6 @@ async function main() {
         const actualProfitPercent = actualProfit.mul(new BN(10000)).div(profitableAmount.amount).toNumber();
         console.log(`Actual Profit:\t${parseFloat(web3.utils.fromWei(actualProfit, 'ether')).toFixed(4)} BUSD (${actualProfitPercent/100}%)`);
         sendLineNotification(`SUCCESS:\n${parseFloat(web3.utils.fromWei(actualProfit, 'ether')).toFixed(4)} BUSD (${actualProfitPercent/100}%)\nBalance: ${parseFloat(web3.utils.fromWei(afterBusdBalance, 'ether')).toFixed(4)} BUSD`);
-        process.exit(0);
     }).on("error", (err) => {
         console.error(err.message);
         isTransactionOngoing = false;
