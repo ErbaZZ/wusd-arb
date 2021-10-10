@@ -27,49 +27,12 @@
         "inputs": [
             {
                 "internalType": "uint256",
-                "name": "minUsdt",
+                "name": "minUsdc",
                 "type": "uint256"
             }
         ],
         "name": "claim",
         "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {
-                "internalType": "uint256",
-                "name": "minUsdt",
-                "type": "uint256"
-            },
-            {
-                "internalType": "uint256",
-                "name": "minBusd",
-                "type": "uint256"
-            }
-        ],
-        "name": "claimAndExchange",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {
-                "internalType": "uint256",
-                "name": "minBusd",
-                "type": "uint256"
-            }
-        ],
-        "name": "exchangeUsdtToBusd",
-        "outputs": [
-            {
-                "internalType": "uint256",
-                "name": "",
-                "type": "uint256"
-            }
-        ],
         "stateMutability": "nonpayable",
         "type": "function"
     },
@@ -128,12 +91,12 @@
         "inputs": [
             {
                 "internalType": "uint256",
-                "name": "busdAmount",
+                "name": "usdcAmount",
                 "type": "uint256"
             },
             {
                 "internalType": "uint256",
-                "name": "minAmountOut",
+                "name": "minWusdAmount",
                 "type": "uint256"
             }
         ],
@@ -146,16 +109,16 @@
         "inputs": [
             {
                 "internalType": "uint256",
-                "name": "busdAmount",
+                "name": "usdcAmount",
                 "type": "uint256"
             },
             {
                 "internalType": "uint256",
-                "name": "minAmountOut",
+                "name": "minWusdAmount",
                 "type": "uint256"
             }
         ],
-        "name": "swapBusdToWusd",
+        "name": "swapUsdcToWusd",
         "outputs": [
             {
                 "internalType": "uint256[]",
