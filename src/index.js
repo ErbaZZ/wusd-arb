@@ -81,6 +81,10 @@ let lastProfit;
 
 // ====== FUNCTIONS ======
 
+function sleep(ms) {
+	return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 const sendLineNotification = async (message) => {
 	return axios.post(LINE_NOTI_URL, `message=${encodeURIComponent(message)}`, LINE_NOTI_CONFIG);
 }
@@ -133,7 +137,8 @@ const stableSwapExchange = async (fromId, toId, amountIn, amountOutMin, gasPrice
         gasPrice: gasPrice.toString(),
         gas: GAS_LIMIT,
         from: account.address
-    }).on('transactionHash', function (transactionHash) {
+    })
+    .on('transactionHash', function (transactionHash) {
         console.log(`Swapping: ${transactionHash}`);
     }).on('receipt', (receipt) => {
         console.log("Swapping Success!");
@@ -142,12 +147,9 @@ const stableSwapExchange = async (fromId, toId, amountIn, amountOutMin, gasPrice
     });
 }
 
-const swapAndRedeem = async (busdAmount, minAmountOut, gasPrice) => {
-    await wusdArb.methods.swapAndRedeem(busdAmount, minAmountOut).send({
-        gasPrice: gasPrice.toString(),
-        gas: GAS_LIMIT,
-        from: account.address
-    }).on('transactionHash', function (transactionHash) {
+const swapAndRedeem = async (busdAmount, minAmountOut, txConfig) => {
+    return wusdArb.methods.swapAndRedeem(busdAmount, minAmountOut).send(txConfig)
+    .on('transactionHash', function (transactionHash) {
         console.log(`Swapping and Redeeming: ${transactionHash}`);
     }).on('receipt', (receipt) => {
         console.log("Swapping and Redeeming Success!");
@@ -156,12 +158,9 @@ const swapAndRedeem = async (busdAmount, minAmountOut, gasPrice) => {
     });
 }
 
-const claimAndExchange = async (minUsdt, minBusd, gasPrice) => {
-    await wusdArb.methods.claimAndExchange(minUsdt, minBusd).send({
-        gasPrice: gasPrice.toString(),
-        gas: GAS_LIMIT,
-        from: account.address
-    }).on('transactionHash', function (transactionHash) {
+const claimAndExchange = async (minUsdt, minBusd, txConfig) => {
+    return wusdArb.methods.claimAndExchange(minUsdt, minBusd).send(txConfig)
+    .on('transactionHash', function (transactionHash) {
         console.log(`Claiming and Exchanging: ${transactionHash}`);
     }).on('receipt', (receipt) => {
         console.log("Claiming and Exchanging Success!");
@@ -171,6 +170,7 @@ const claimAndExchange = async (minUsdt, minBusd, gasPrice) => {
 }
 
 const fetchInfo = async() => {
+    const nonce = web3.eth.getTransactionCount(account.address, "pending");
     const busdBalance = busd.methods.balanceOf(account.address).call();
     const usdtBalance = usdt.methods.balanceOf(account.address).call();
     const wusdSupply = wusd.methods.totalSupply().call();
@@ -179,6 +179,7 @@ const fetchInfo = async() => {
     const wusdbusdReserves = wusdbusdPair.methods.getReserves().call();
     const usdtwexReserves = usdtwexPair.methods.getReserves().call();
     return {
+        nonce: await nonce,
         busdBalance: new BN(await busdBalance),
         usdtBalance: new BN(await usdtBalance),
         wusdSupply: new BN(await wusdSupply),
@@ -252,10 +253,11 @@ async function main() {
     // const pendingSubscription = web3.eth.subscribe('pendingTransactions');
 
     blockSubscription.on('data', async (block, error) => {
+        currentBlock = block.number;
+
         // Skip on redeeming
         if (isTransactionOngoing) return;
 
-        currentBlock = block.number;
         const info = await fetchInfo();
 
         // Check USDT Balance
@@ -274,20 +276,39 @@ async function main() {
         if (profitFlat < 1.5) return;
 
         sendLineNotification(`\n${parseFloat(web3.utils.fromWei(profitableAmount.amount, 'ether')).toFixed(4)} -> ${parseFloat(web3.utils.fromWei(profitableAmount.redeem, 'ether')).toFixed(4)} BUSD\nProfit: ${profitFlat}`);
-
+        
         isTransactionOngoing = true;
         
         // await swapToken(waultRouter, profitableAmount.amount, profitableAmount.wusdAmount.mul(new BN(99)).div(new BN(100)), PATH_BUSD_WUSD, GAS_BASE);
         // const wusdBalance = new BN(await wusd.methods.balanceOf(account.address).call());
         // await redeem(wusdBalance, GAS_BASE);
+        const sendTxBlock = currentBlock;
 
-        await swapAndRedeem(profitableAmount.amount, profitableAmount.wusdAmount.mul(new BN(99)).div(new BN(100)), GAS_BASE);
+        let txConfig = {
+            gasPrice: GAS_BASE,
+            gas: GAS_LIMIT,
+            from: account.address,
+            nonce: info.nonce
+        }
+
+        swapAndRedeem(profitableAmount.amount, profitableAmount.wusdAmount.mul(new BN(99)).div(new BN(100)), txConfig);
 
         // await claimUsdt("0", GAS_BASE);
         // const afterUsdtBalance = new BN(await usdt.methods.balanceOf(account.address).call());
         // await stableSwapExchange(1, 0, afterUsdtBalance, afterUsdtBalance.mul(new BN(999)).div(new BN(1000)), GAS_BASE);
+        
+        txConfig = {
+            gasPrice: GAS_BASE,
+            gas: GAS_LIMIT,
+            from: account.address,
+            nonce: info.nonce + 1
+        }
 
-        await claimAndExchange("0", profitableAmount.amount, GAS_BASE);
+        while (currentBlock === sendTxBlock) {
+            await sleep(10);
+        }
+
+        await claimAndExchange("0", profitableAmount.amount.mul(new BN(999)).div(new BN(1000)), txConfig);
 
         isTransactionOngoing = false;
 
@@ -303,6 +324,7 @@ async function main() {
         const actualProfitPercent = actualProfit.mul(new BN(10000)).div(profitableAmount.amount).toNumber();
         console.log(`Actual Profit:\t${parseFloat(web3.utils.fromWei(actualProfit, 'ether')).toFixed(4)} BUSD (${actualProfitPercent/100}%)`);
         sendLineNotification(`SUCCESS:\n${parseFloat(web3.utils.fromWei(actualProfit, 'ether')).toFixed(4)} BUSD (${actualProfitPercent/100}%)\nBalance: ${parseFloat(web3.utils.fromWei(afterBusdBalance, 'ether')).toFixed(4)} BUSD`);
+        process.exit(0);
     }).on("error", (err) => {
         console.error(err.message);
         isTransactionOngoing = false;
