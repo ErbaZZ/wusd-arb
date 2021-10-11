@@ -172,6 +172,7 @@ const claimAndExchange = async (minUsdt, minBusd, txConfig) => {
 const fetchInfo = async() => {
     const nonce = web3.eth.getTransactionCount(account.address, "pending");
     const busdBalance = busd.methods.balanceOf(account.address).call();
+    const exchangeRate = stableSwap.methods.get_dy(1, 0, web3.utils.toWei("30000", "ether")).call();
     const usdtBalance = usdt.methods.balanceOf(account.address).call();
     const wusdSupply = wusd.methods.totalSupply().call();
     const wexBalance = wex.methods.balanceOf(ContractAddress["WUSDMaster"]).call();
@@ -180,6 +181,7 @@ const fetchInfo = async() => {
     const usdtwexReserves = usdtwexPair.methods.getReserves().call();
     return {
         nonce: await nonce,
+        exchangeRate: new BN(await exchangeRate).mul(new BN(100000)).div(new BN(web3.utils.toWei("30000", "ether"))),
         busdBalance: new BN(await busdBalance),
         usdtBalance: new BN(await usdtBalance),
         wusdSupply: new BN(await wusdSupply),
@@ -218,7 +220,7 @@ const getMostProfitableAmount = (info) => {
         const usdtFromWexL = getAmountOut(wexToSwapL, 9980, info.usdtwexReserves[1], info.usdtwexReserves[0]);
         const usdtFromRedeemL = wusdAmountL.mul(new BN(895)).div(new BN(1000)).add(usdtFromWexL);
         // Ignore price impact from USDT -> BUSD
-        const profitL = usdtFromRedeemL.sub(busdToSwapL);
+        const profitL = usdtFromRedeemL.mul(info.exchangeRate).div(new BN(100000)).sub(busdToSwapL);
        
         const busdToSwapR = middlePoint.add(limitR).div(new BN(2));
         const wusdAmountR = getAmountsOut(busdToSwapR, 9980, reservesArray).slice(-1)[0];
@@ -226,7 +228,7 @@ const getMostProfitableAmount = (info) => {
         const usdtFromWexR = getAmountOut(wexToSwapR, 9980, info.usdtwexReserves[1], info.usdtwexReserves[0]);
         const usdtFromRedeemR = wusdAmountR.mul(new BN(895)).div(new BN(1000)).add(usdtFromWexR);
         // Ignore price impact from USDT -> BUSD
-        const profitR = usdtFromRedeemR.sub(busdToSwapR);
+        const profitR = usdtFromRedeemR.mul(info.exchangeRate).div(new BN(100000)).sub(busdToSwapR);
 
         if (profitL.gt(profitR)) {
             busdToSwap = busdToSwapL
@@ -259,15 +261,15 @@ async function main() {
         if (isTransactionOngoing) return;
 
         const info = await fetchInfo();
-
+        
         // Check USDT Balance
         if (info.busdBalance.lte(new BN(0))) return;
         
         // Quote USDT to WUSD from redeem
-        const profitableAmount = getMostProfitableAmount(info)
+        const profitableAmount = getMostProfitableAmount(info);
         
         const profitFlat = parseFloat(web3.utils.fromWei(profitableAmount.profit, 'ether')).toFixed(4);
-
+        
         if (lastProfit !== profitFlat) {
             console.log(`${new Date().toLocaleString()}, Block: ${currentBlock}, Balance: ${parseFloat(web3.utils.fromWei(info.busdBalance, 'ether')).toFixed(4)} BUSD, Amount: ${parseFloat(web3.utils.fromWei(profitableAmount.amount, 'ether')).toFixed(4)} BUSD, Redeem: ${parseFloat(web3.utils.fromWei(profitableAmount.redeem, 'ether')).toFixed(4)} BUSD, Profit: ${profitFlat} BUSD`);
             lastProfit = profitFlat;

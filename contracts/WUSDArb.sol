@@ -106,7 +106,6 @@ contract WUSDArb is Ownable {
 
     function _swapBusdToWusd(uint256 busdAmount, uint256 minAmountOut)
         private
-        onlyOwner
         returns (uint256[] memory)
     {
         return
@@ -119,26 +118,22 @@ contract WUSDArb is Ownable {
             );
     }
 
-    function _redeem(uint256 wusdAmount) private onlyOwner {
+    function _redeem(uint256 wusdAmount) private {
         WUSDMASTER.redeem(wusdAmount);
     }
 
-    function _claim(uint256 minUsdt) private onlyOwner {
+    function _claim(uint256 minUsdt) private {
         WUSDMASTER.claimUsdt(minUsdt);
     }
 
     function _exchangeUsdtToBusd(uint256 usdtAmount, uint256 minBusd)
         private
-        onlyOwner
         returns (uint256)
     {
         return STABLESWAP.exchange(1, 0, usdtAmount, minBusd);
     }
 
-    function _transferToken(address token, address destination)
-        private
-        onlyOwner
-    {
+    function _transferToken(address token, address destination) private {
         IERC20(token).safeTransfer(
             destination,
             IERC20(token).balanceOf(address(this))
