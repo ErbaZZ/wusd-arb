@@ -101,6 +101,7 @@ const claim = async (minUsdc, txConfig) => {
 };
 
 const fetchInfo = async () => {
+    const gasPrice = web3.eth.getGasPrice();
     const nonce = web3.eth.getTransactionCount(account.address, "pending");
     const usdcBalance = usdc.methods.balanceOf(account.address).call();
     const wusdSupply = wusd.methods.totalSupply().call();
@@ -108,6 +109,7 @@ const fetchInfo = async () => {
     const usdcwusdReserves = usdcwusdPair.methods.getReserves().call();
     const usdcwexpolyReserves = usdcwexpolyPair.methods.getReserves().call();
     return {
+        gasPrice: new BN(await gasPrice).add(new BN(2)),
         nonce: await nonce,
         usdcBalance: new BN(await usdcBalance),
         wusdSupply: new BN(await wusdSupply),
@@ -200,7 +202,7 @@ async function main() {
         const sendTxBlock = currentBlock;
 
         let txConfig = {
-            gasPrice: GAS_BASE,
+            gasPrice: info.gasPrice,
             gas: GAS_LIMIT,
             from: account.address,
             nonce: info.nonce
@@ -209,13 +211,13 @@ async function main() {
         swapAndRedeem(profitableAmount.amount, profitableAmount.wusdAmount.mul(new BN(99)).div(new BN(100)), txConfig);
 
         txConfig = {
-            gasPrice: GAS_BASE,
+            gasPrice: info.gasPrice,
             gas: GAS_LIMIT,
             from: account.address,
             nonce: info.nonce + 1
         };
 
-        while (currentBlock === sendTxBlock) {
+        while (currentBlock <= sendTxBlock) {
             await sleep(10);
         }
 
