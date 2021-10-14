@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "src/index.js",
   "scripts": {
-    "start": "node -r esm src/index.js"
+    "start": "node -r esm src/index.js",
+    "claim": "CLAIM=true node -r esm src/index.js"
   },
   "repository": {
     "type": "git",
