@@ -19,6 +19,7 @@ const PRIVATE_KEY = process.env.PRIVATE_KEY;
 const GAS_BASE = process.env.GAS_BASE;
 const GAS_LIMIT = process.env.GAS_LIMIT;
 const LINE_NOTI_TOKEN = process.env.LINE_NOTI_TOKEN;
+const CLAIM = process.env.CLAIM;
 
 // ==== Notifications ====
 
@@ -253,6 +254,19 @@ const getMostProfitableAmount = (info) => {
 async function main() {
 	const blockSubscription = web3.eth.subscribe('newBlockHeaders');
     // const pendingSubscription = web3.eth.subscribe('pendingTransactions');
+
+    if (CLAIM) {
+        const busdBalance = new BN(await busd.methods.balanceOf(account.address).call());
+        await claimAndExchange("0", "0", {
+            gasPrice: GAS_BASE,
+            gas: GAS_LIMIT,
+            from: account.address
+        });
+        const afterBusdBalance = new BN(await busd.methods.balanceOf(account.address).call());
+        const actualProfit = afterBusdBalance.sub(busdBalance);
+        console.log(`Claimed:\t${parseFloat(web3.utils.fromWei(actualProfit, 'ether')).toFixed(4)} BUSD`);
+        process.exit(0);
+    }
 
     blockSubscription.on('data', async (block, error) => {
         currentBlock = block.number;
