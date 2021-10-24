@@ -151,22 +151,18 @@ const stableSwapExchange = async (fromId, toId, amountIn, amountOutMin, gasPrice
 const swapAndRedeem = async (busdAmount, minAmountOut, txConfig) => {
     return wusdArb.methods.swapAndRedeem(busdAmount, minAmountOut).send(txConfig)
     .on('transactionHash', function (transactionHash) {
-        console.log(`Swapping and Redeeming: ${transactionHash}`);
+        console.log(`Swapping and Redeeming: ${transactionHash} (${web3.utils.fromWei(txConfig.gasPrice, 'Gwei')} gwei)`);
     }).on('receipt', (receipt) => {
         console.log("Swapping and Redeeming Success!");
-    }).on('error', (err) => {
-        throw err;
     });
 }
 
 const claimAndExchange = async (minUsdt, minBusd, txConfig) => {
     return wusdArb.methods.claimAndExchange(minUsdt, minBusd).send(txConfig)
     .on('transactionHash', function (transactionHash) {
-        console.log(`Claiming and Exchanging: ${transactionHash}`);
+        console.log(`Claiming and Exchanging: ${transactionHash} (${web3.utils.fromWei(txConfig.gasPrice, 'Gwei')} gwei)`);
     }).on('receipt', (receipt) => {
         console.log("Claiming and Exchanging Success!");
-    }).on('error', (err) => {
-        throw err;
     });
 }
 
@@ -323,8 +319,18 @@ async function main() {
         while (currentBlock === sendTxBlock) {
             await sleep(10);
         }
-
-        await claimAndExchange("0", profitableAmount.amount.mul(new BN(999)).div(new BN(1000)), txConfig);
+        try {
+            await claimAndExchange("0", profitableAmount.amount.mul(new BN(999)).div(new BN(1000)), txConfig);
+        } catch(e) {
+            console.log("Claiming Error!, Retrying...");
+            txConfig = {
+                gasPrice: GAS_BASE,
+                gas: GAS_LIMIT,
+                from: account.address,
+                nonce: info.nonce + 2
+            }    
+            await claimAndExchange("0", profitableAmount.amount.mul(new BN(999)).div(new BN(1000)), txConfig);
+        }
 
         isTransactionOngoing = false;
 
