@@ -6,6 +6,7 @@ import ERC20 from './abi/ERC20.json';
 import Pair from './abi/Pair.json';
 import ContractAddress from './ContractAddress.json';
 import WUSDArbPoly from './abi/WUSDArbPoly.json';
+import WUSDMaster from './abi/WUSDMaster.json';
 
 import { getAmountOut, getAmountsOut } from './modules/price_helper.js';
 
@@ -33,6 +34,8 @@ const provider = new Web3.providers.WebsocketProvider(RPC_URL, {
     clientConfig: {
         keepalive: true,
         keepaliveInterval: 60000,
+        maxReceivedFrameSize: 2000000, // bytes - default: 1MiB, current: 2MiB
+        maxReceivedMessageSize: 10000000, // bytes - default: 8MiB, current: 10Mib
     },
     reconnect: {
         auto: true,
@@ -62,6 +65,7 @@ const wusd = new web3.eth.Contract(ERC20, ContractAddress["WUSD"]);
 const usdc = new web3.eth.Contract(ERC20, ContractAddress["USDC"]);
 const wexpoly = new web3.eth.Contract(ERC20, ContractAddress["WEXPoly"]);
 const wusdArb = new web3.eth.Contract(WUSDArbPoly, ContractAddress["WUSDArbPoly"]);
+const wusdMaster = new web3.eth.Contract(WUSDMaster, ContractAddress["WUSDMaster"]);
 
 // ====== VARIABLES ======
 
@@ -82,23 +86,19 @@ const sendLineNotification = async (message) => {
 const swapAndRedeem = async (usdcAmount, minWusdAmount, txConfig) => {
     return wusdArb.methods.swapAndRedeem(usdcAmount, minWusdAmount).send(txConfig)
         .on('transactionHash', function (transactionHash) {
-            console.log(`Swapping and Redeeming: ${transactionHash}`);
+            console.log(`Swapping and Redeeming: ${transactionHash} (${web3.utils.fromWei(txConfig.gasPrice, 'Gwei')} gwei)`);
         }).on('receipt', (receipt) => {
             console.log("Swapping and Redeeming Success!");
-        }).on('error', (err) => {
-            throw err;
-        });
+        })
 };
 
 const claim = async (minUsdc, txConfig) => {
     return wusdArb.methods.claim(minUsdc).send(txConfig)
         .on('transactionHash', function (transactionHash) {
-            console.log(`Claiming: ${transactionHash}`);
+            console.log(`Claiming: ${transactionHash} (${web3.utils.fromWei(txConfig.gasPrice, 'Gwei')} gwei)`);
         }).on('receipt', (receipt) => {
             console.log("Claiming Success!");
-        }).on('error', (err) => {
-            throw err;
-        });
+        })
 };
 
 const fetchInfo = async () => {
@@ -110,7 +110,7 @@ const fetchInfo = async () => {
     const usdcwusdReserves = usdcwusdPair.methods.getReserves().call();
     const usdcwexpolyReserves = usdcwexpolyPair.methods.getReserves().call();
     return {
-        gasPrice: new BN(await gasPrice).add(new BN(2)),
+        gasPrice: new BN(await gasPrice).add(new BN(5000000000)),
         nonce: await nonce,
         usdcBalance: new BN(await usdcBalance),
         wusdSupply: new BN(await wusdSupply),
@@ -170,20 +170,38 @@ const getMostProfitableAmount = (info) => {
 };
 
 async function main() {
+    sendLineNotification(`Starting...`);
     const blockSubscription = web3.eth.subscribe('newBlockHeaders');
     // const pendingSubscription = web3.eth.subscribe('pendingTransactions');
 
-    if (CLAIM) {
-        const usdcBalance = new BN(await usdc.methods.balanceOf(account.address).call());
+    const pendingClaim = await wusdMaster.methods.usdcClaimAmount(ContractAddress["WUSDArbPoly"]).call();
+
+    if (pendingClaim !== "0") {
+        const gasPrice = new BN(await web3.eth.getGasPrice());
+        const usdcBalance = usdc.methods.balanceOf(account.address).call();
+        const masterUsdcBalance = usdc.methods.balanceOf(ContractAddress['WUSDMaster']).call();
+
+        const balances = {
+            usdc: new BN(await usdcBalance),
+            masterUsdc: new BN(await masterUsdcBalance)
+        }
+        if (balances.masterUsdc.lt(new BN(pendingClaim))) {
+            sendLineNotification(`🟪❌ Insufficient USDC Balance in WUSDMaster, waiting...`);
+            while(balances.masterUsdc.lt(new BN(pendingClaim))) {
+                await sleep(2000);
+                balances.masterUsdc = new BN(await usdc.methods.balanceOf(ContractAddress['WUSDMaster']).call());
+            }
+        }
         await claim("0", {
-            gasPrice: GAS_BASE,
+            gasPrice: gasPrice.add(new BN(10000000001)),
             gas: GAS_LIMIT,
             from: account.address
         });
         const afterUsdcBalance = new BN(await usdc.methods.balanceOf(account.address).call());
-        const actualProfit = afterUsdcBalance.sub(usdcBalance);
-        console.log(`Claimed:\t${parseFloat(web3.utils.fromWei(actualProfit, 'ether')).toFixed(4)} USDC`);
-        process.exit(0);
+        const actualProfit = afterUsdcBalance.sub(balances.usdc);
+        console.log(`Claimed:\t${parseFloat(web3.utils.fromWei(actualProfit, 'mwei')).toFixed(4)} USDC (${web3.utils.fromWei(gasPrice.add(new BN(10000000001)), 'Gwei')} gwei)`);
+        sendLineNotification(`🟪✅ Claimed:\t${parseFloat(web3.utils.fromWei(actualProfit, 'ether')).toFixed(4)} USDC\nBalance: ${parseFloat(web3.utils.fromWei(afterUsdcBalance, 'ether')).toFixed(4)} USDC`);
+        if (CLAIM) process.exit(0);
     }
 
     blockSubscription.on('data', async (block, error) => {
@@ -209,23 +227,28 @@ async function main() {
 
         if (profitFlat < 0.5) return;
 
-        sendLineNotification(`\n${parseFloat(web3.utils.fromWei(profitableAmount.amount, 'mwei')).toFixed(4)} -> ${parseFloat(web3.utils.fromWei(profitableAmount.redeem, 'mwei')).toFixed(4)} USDC\nProfit: ${profitFlat}`);
+        sendLineNotification(`🟪 ${profitFlat} USDC\n${parseFloat(web3.utils.fromWei(profitableAmount.amount, 'mwei')).toFixed(4)} -> ${parseFloat(web3.utils.fromWei(profitableAmount.redeem, 'mwei')).toFixed(4)} USDC`);
 
         isTransactionOngoing = true;
 
         const sendTxBlock = currentBlock;
 
         let txConfig = {
-            gasPrice: info.gasPrice,
+            gasPrice: info.gasPrice.add(new BN(5000000001)),
             gas: GAS_LIMIT,
             from: account.address,
             nonce: info.nonce
         };
 
-        swapAndRedeem(profitableAmount.amount, profitableAmount.wusdAmount.mul(new BN(99)).div(new BN(100)), txConfig);
+        try {
+            swapAndRedeem(profitableAmount.amount, profitableAmount.wusdAmount.mul(new BN(99)).div(new BN(100)), txConfig);
+        } catch (e) {
+            isTransactionOngoing = false;
+            return;
+        }
 
         txConfig = {
-            gasPrice: info.gasPrice,
+            gasPrice: info.gasPrice.add(new BN(5000000001)),
             gas: GAS_LIMIT,
             from: account.address,
             nonce: info.nonce + 1
@@ -234,15 +257,25 @@ async function main() {
         while (currentBlock <= sendTxBlock) {
             await sleep(10);
         }
-
-        await claim("0", txConfig);
+        try {
+            await claim("0", txConfig);
+        } catch (e) {
+            console.log("Claim Failed, Retrying...");
+            txConfig = {
+                gasPrice: info.gasPrice.add(new BN(5000000001)),
+                gas: GAS_LIMIT,
+                from: account.address,
+                nonce: info.nonce + 2
+            };    
+            await claim("0", txConfig);
+        }
 
         isTransactionOngoing = false;
 
         const afterusdcBalance = new BN(await usdc.methods.balanceOf(account.address).call());
 
         if (afterusdcBalance.lt(info.usdcBalance)) {
-            sendLineNotification(`BAD:\nBalance: ${parseFloat(web3.utils.fromWei(afterusdcBalance, 'mwei')).toFixed(4)} USDC`);
+            sendLineNotification(`🟪❌ Balance: ${parseFloat(web3.utils.fromWei(afterusdcBalance, 'mwei')).toFixed(4)} USDC`);
             console.warn("Bad Redeem!");
             return;
         }
@@ -250,7 +283,7 @@ async function main() {
         const actualProfit = afterusdcBalance.sub(info.usdcBalance);
         const actualProfitPercent = actualProfit.mul(new BN(10000)).div(profitableAmount.amount).toNumber();
         console.log(`Actual Profit:\t${parseFloat(web3.utils.fromWei(actualProfit, 'mwei')).toFixed(4)} USDC (${actualProfitPercent / 100}%)`);
-        sendLineNotification(`SUCCESS:\n${parseFloat(web3.utils.fromWei(actualProfit, 'mwei')).toFixed(4)} USDC (${actualProfitPercent / 100}%)\nBalance: ${parseFloat(web3.utils.fromWei(afterusdcBalance, 'mwei')).toFixed(4)} USDC`);
+        sendLineNotification(`🟪✅ ${parseFloat(web3.utils.fromWei(actualProfit, 'mwei')).toFixed(4)} USDC (${actualProfitPercent / 100}%)\nBalance: ${parseFloat(web3.utils.fromWei(afterusdcBalance, 'mwei')).toFixed(4)} USDC`);
     }).on("error", (err) => {
         console.error(err.message);
         isTransactionOngoing = false;
