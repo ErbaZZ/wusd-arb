@@ -2,6 +2,7 @@ require('dotenv').config();
 
 import Web3 from 'web3';
 import axios from 'axios';
+import chalk from 'chalk';
 import ERC20 from './abi/ERC20.json';
 import Pair from './abi/Pair.json';
 import WUSDMaster from './abi/WUSDMaster.json';
@@ -39,6 +40,8 @@ const provider = new Web3.providers.WebsocketProvider(RPC_URL, {
     clientConfig: {
         keepalive: true,
         keepaliveInterval: 60000,
+        maxReceivedFrameSize: 2000000, // bytes - default: 1MiB, current: 2MiB
+        maxReceivedMessageSize: 10000000, // bytes - default: 8MiB, current: 10Mib
     },
     reconnect: {
         auto: true,
@@ -168,6 +171,7 @@ const claimAndExchange = async (minUsdt, minBusd, txConfig) => {
 
 const fetchInfo = async() => {
     const nonce = web3.eth.getTransactionCount(account.address, "pending");
+    const gasPrice = web3.eth.getGasPrice();
     const busdBalance = busd.methods.balanceOf(account.address).call();
     const exchangeRate = stableSwap.methods.get_dy(1, 0, web3.utils.toWei("30000", "ether")).call();
     const usdtBalance = usdt.methods.balanceOf(account.address).call();
@@ -178,6 +182,7 @@ const fetchInfo = async() => {
     const usdtwexReserves = usdtwexPair.methods.getReserves().call();
     return {
         nonce: await nonce,
+        gasPrice: new BN(await gasPrice).add(new BN("1")),
         exchangeRate: new BN(await exchangeRate).mul(new BN(100000)).div(new BN(web3.utils.toWei("30000", "ether"))),
         busdBalance: new BN(await busdBalance),
         usdtBalance: new BN(await usdtBalance),
@@ -248,20 +253,42 @@ const getMostProfitableAmount = (info) => {
 }
 
 async function main() {
+    sendLineNotification(`Starting...`);
+
 	const blockSubscription = web3.eth.subscribe('newBlockHeaders');
     // const pendingSubscription = web3.eth.subscribe('pendingTransactions');
 
-    if (CLAIM) {
-        const busdBalance = new BN(await busd.methods.balanceOf(account.address).call());
+    const pendingClaim = await wusdMaster.methods.usdtClaimAmount(ContractAddress["WUSDArb"]).call();
+    currentBlock = await web3.eth.getBlockNumber();
+    
+    if (pendingClaim !== "0") {
+        console.log(currentBlock);
+        const gasPrice = new BN(await web3.eth.getGasPrice());
+        const busdBalance = busd.methods.balanceOf(account.address).call();
+        const masterUsdtBalance = usdt.methods.balanceOf(ContractAddress['WUSDMaster']).call();
+
+        const balances = {
+            busd: new BN(await busdBalance),
+            masterUsdt: new BN(await masterUsdtBalance)
+        }
+
+        if (balances.masterUsdt.lt(new BN(pendingClaim))) {
+            sendLineNotification(`🟨❌ Insufficient USDT Balance in WUSDMaster, waiting...`);
+            while(balances.masterUsdt.lt(new BN(pendingClaim))) {
+                await sleep(3000);
+                balances.masterUsdt = new BN(await usdt.methods.balanceOf(ContractAddress['WUSDMaster']).call());
+            }
+        }
         await claimAndExchange("0", "0", {
-            gasPrice: GAS_BASE,
+            gasPrice: gasPrice.add(new BN("1")),
             gas: GAS_LIMIT,
             from: account.address
         });
         const afterBusdBalance = new BN(await busd.methods.balanceOf(account.address).call());
-        const actualProfit = afterBusdBalance.sub(busdBalance);
+        const actualProfit = afterBusdBalance.sub(balances.busd);
         console.log(`Claimed:\t${parseFloat(web3.utils.fromWei(actualProfit, 'ether')).toFixed(4)} BUSD`);
-        process.exit(0);
+        sendLineNotification(`🟨✅ Claimed:\t${parseFloat(web3.utils.fromWei(actualProfit, 'ether')).toFixed(4)} BUSD\nBalance: ${parseFloat(web3.utils.fromWei(afterBusdBalance, 'ether')).toFixed(4)} BUSD`);
+        if (CLAIM) process.exit(0);
     }
 
     blockSubscription.on('data', async (block, error) => {
@@ -278,16 +305,21 @@ async function main() {
         // Quote USDT to WUSD from redeem
         const profitableAmount = getMostProfitableAmount(info);
         
-        const profitFlat = parseFloat(web3.utils.fromWei(profitableAmount.profit, 'ether')).toFixed(4);
+        const profitFlat = parseFloat(web3.utils.fromWei(profitableAmount.profit, 'ether'));
+        const profitFlatStr = profitFlat.toFixed(4);
+
+        const gasInUSD = parseFloat(web3.utils.fromWei(info.gasPrice.mul(new BN("500000")).mul(new BN("600")), 'ether'));
+        const gasInUSDStr = gasInUSD.toFixed(4);
+        const gasInUSDWithMargin = gasInUSD + 0.5;
         
-        if (lastProfit !== profitFlat) {
-            console.log(`${new Date().toLocaleString()}, Block: ${currentBlock}, Balance: ${parseFloat(web3.utils.fromWei(info.busdBalance, 'ether')).toFixed(4)} BUSD, Amount: ${parseFloat(web3.utils.fromWei(profitableAmount.amount, 'ether')).toFixed(4)} BUSD, Redeem: ${parseFloat(web3.utils.fromWei(profitableAmount.redeem, 'ether')).toFixed(4)} BUSD, Profit: ${profitFlat} BUSD`);
-            lastProfit = profitFlat;
+        if (lastProfit !== profitFlatStr) {
+            console.log(`${new Date().toLocaleString()}, Block: ${currentBlock}, Balance: ${parseFloat(web3.utils.fromWei(info.busdBalance, 'ether')).toFixed(4)} BUSD, Amount: ${parseFloat(web3.utils.fromWei(profitableAmount.amount, 'ether')).toFixed(4)} BUSD, Redeem: ${parseFloat(web3.utils.fromWei(profitableAmount.redeem, 'ether')).toFixed(4)} BUSD, Profit: ${profitFlatStr} BUSD, Gas: ${gasInUSDStr} BUSD`);
+            lastProfit = profitFlatStr;
         }
 
-        if (profitFlat < 1.5) return;
+        if (profitFlat < gasInUSDWithMargin) return;
 
-        sendLineNotification(`\n${parseFloat(web3.utils.fromWei(profitableAmount.amount, 'ether')).toFixed(4)} -> ${parseFloat(web3.utils.fromWei(profitableAmount.redeem, 'ether')).toFixed(4)} BUSD\nProfit: ${profitFlat}`);
+        sendLineNotification(`🟨 ${profitFlatStr} BUSD\n${parseFloat(web3.utils.fromWei(profitableAmount.amount, 'ether')).toFixed(4)} -> ${parseFloat(web3.utils.fromWei(profitableAmount.redeem, 'ether')).toFixed(4)} BUSD`);
         
         isTransactionOngoing = true;
         
@@ -297,20 +329,25 @@ async function main() {
         const sendTxBlock = currentBlock;
 
         let txConfig = {
-            gasPrice: GAS_BASE,
+            gasPrice: info.gasPrice,
             gas: GAS_LIMIT,
             from: account.address,
             nonce: info.nonce
         }
-
-        swapAndRedeem(profitableAmount.amount, profitableAmount.wusdAmount.mul(new BN(99)).div(new BN(100)), txConfig);
+        try {
+            swapAndRedeem(profitableAmount.amount, profitableAmount.wusdAmount.mul(new BN(99)).div(new BN(100)), txConfig);
+        } catch (e) {
+            console.log("Swapping Failed, Skipping...")
+            isTransactionOngoing = false;
+            return;
+        }
 
         // await claimUsdt("0", GAS_BASE);
         // const afterUsdtBalance = new BN(await usdt.methods.balanceOf(account.address).call());
         // await stableSwapExchange(1, 0, afterUsdtBalance, afterUsdtBalance.mul(new BN(999)).div(new BN(1000)), GAS_BASE);
         
         txConfig = {
-            gasPrice: GAS_BASE,
+            gasPrice: info.gasPrice,
             gas: GAS_LIMIT,
             from: account.address,
             nonce: info.nonce + 1
@@ -324,7 +361,7 @@ async function main() {
         } catch(e) {
             console.log("Claiming Error!, Retrying...");
             txConfig = {
-                gasPrice: GAS_BASE,
+                gasPrice: info.gasPrice,
                 gas: GAS_LIMIT,
                 from: account.address,
                 nonce: info.nonce + 2
@@ -337,15 +374,15 @@ async function main() {
         const afterBusdBalance = new BN(await busd.methods.balanceOf(account.address).call());
 
         if (afterBusdBalance.lt(info.busdBalance)) {
-            sendLineNotification(`BAD:\nBalance: ${parseFloat(web3.utils.fromWei(afterBusdBalance, 'ether')).toFixed(4)} BUSD`);
-            console.warn("Bad Redeem!");
+            sendLineNotification(`🟨❌ Balance: ${parseFloat(web3.utils.fromWei(afterBusdBalance, 'ether')).toFixed(4)} BUSD`);
+            console.warn(chalk.red("Bad Redeem!"));
             return;
         }
 
         const actualProfit = afterBusdBalance.sub(info.busdBalance);
         const actualProfitPercent = actualProfit.mul(new BN(10000)).div(profitableAmount.amount).toNumber();
-        console.log(`Actual Profit:\t${parseFloat(web3.utils.fromWei(actualProfit, 'ether')).toFixed(4)} BUSD (${actualProfitPercent/100}%)`);
-        sendLineNotification(`SUCCESS:\n${parseFloat(web3.utils.fromWei(actualProfit, 'ether')).toFixed(4)} BUSD (${actualProfitPercent/100}%)\nBalance: ${parseFloat(web3.utils.fromWei(afterBusdBalance, 'ether')).toFixed(4)} BUSD`);
+        console.log(chalk.green(`Actual Profit:\t${parseFloat(web3.utils.fromWei(actualProfit, 'ether')).toFixed(4)} BUSD (${actualProfitPercent/100}%)`));
+        sendLineNotification(`🟨✅ ${parseFloat(web3.utils.fromWei(actualProfit, 'ether')).toFixed(4)} BUSD (${actualProfitPercent/100}%)\nBalance: ${parseFloat(web3.utils.fromWei(afterBusdBalance, 'ether')).toFixed(4)} BUSD`);
     }).on("error", (err) => {
         console.error(err.message);
         isTransactionOngoing = false;
